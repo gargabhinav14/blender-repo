@@ -1,0 +1,232 @@
+import tensorflow as tf
+import os
+import numpy as np
+import cv2  # Import OpenCV
+from sklearn.model_selection import train_test_split
+# import sys
+import matplotlib.pyplot as plt 
+import math
+import mediapipe as mp
+
+#%%
+
+#########################################################################################
+#From Kaggle
+
+
+# Initializing mediapipe pose class.
+mp_pose = mp.solutions.pose
+
+# Setting up the Pose model for images.
+pose_img = mp_pose.Pose(static_image_mode=True, min_detection_confidence=0.5, model_complexity=1)
+
+# Setting up the Pose model for videos.
+# pose_video = mp_pose.Pose(static_image_mode=False, min_detection_confidence=0.5, 
+#                           min_tracking_confidence=0.5, model_complexity=1)
+
+# Initializing mediapipe drawing class to draw landmarks on specified image.
+mp_drawing = mp.solutions.drawing_utils
+
+
+
+
+
+def estimPose_img(input_file, pose=pose_img, landmarks_c=(234,63,247), connection_c=(117,249,77), thickness=2, circle_r=1   , display=True):
+    
+    # Read the input image
+    if isinstance(input_file, str) :
+        input_img = cv2.imread(input_file)
+    else :
+        input_img = input_file
+    
+    # Create a copy of the input image
+    output_img = input_img.copy()
+    
+    # Convert the image from BGR into RGB format.
+    RGB_img = cv2.cvtColor(output_img, cv2.COLOR_BGR2RGB)
+    
+    # Perform the Pose Detection.
+    results = pose.process(RGB_img)
+    
+    # Retrieve the height and width of the input image.
+    height, width, _ = input_img.shape
+    
+    # Initialize a list to store the detected landmarks.
+    landmarks = []
+    
+    # Check if any landmarks are detected.
+    if results.pose_landmarks:
+    
+        # Draw Pose landmarks on the output image.
+        mp_drawing.draw_landmarks(output_img, results.pose_landmarks, mp_pose.POSE_CONNECTIONS, 
+                                  mp_drawing.DrawingSpec(landmarks_c, thickness, circle_r),
+                                  mp_drawing.DrawingSpec(connection_c, thickness, circle_r))
+        
+        # Iterate over the detected landmarks.
+        for landmark in results.pose_landmarks.landmark:
+            landmarks.append((int(landmark.x * width), int(landmark.y * height),
+                                  (landmark.z * width)))
+    
+    # Check if we want to display.
+    if display:
+        # Display the original input image and the resulting image.
+        plt.figure(figsize=[15,15])
+        plt.subplot(121);plt.imshow(input_img[:,:,::-1]);plt.title("Original image");plt.axis('off');
+        plt.subplot(122);plt.imshow(output_img[:,:,::-1]);plt.title("Output image");plt.axis('off');
+        
+        # Plot the Pose landmarks in 3D.
+        mp_drawing.plot_landmarks(results.pose_world_landmarks, mp_pose.POSE_CONNECTIONS)
+        
+        return output_img, landmarks
+        
+    # Just get output_img and landmarks
+    else:
+        # Return the output image and the found landmarks.
+        return output_img, landmarks
+
+def calcul_angle(point1, point2, point3):
+    x1, y1, _ = point1
+    x2, y2, _ = point2
+    x3, y3, _ = point3
+    angle = math.degrees(math.atan2(y3 - y2, x3 - x2) - math.atan2(y1 - y2, x1 - x2))
+    return angle
+
+
+# imagePath = 'D:/blender_scripts/BlenderModels/git/blender-repo-base/blender-repo/outputImages/100_0.png'
+
+# imageOut , poseLandmarks = estimPose_img(imagePath)
+
+# print('The angle formed by', 
+#       mp_pose.PoseLandmark(12).name, ',',
+#       mp_pose.PoseLandmark(11).name, 'and', 
+#       mp_pose.PoseLandmark(13).name, 'is:', 
+#       calcul_angle(poseLandmarks[12], poseLandmarks[11], poseLandmarks[13])) 
+
+
+# %%
+# Define image dimensions and other parameters
+IMG_WIDTH = 100  # Adjust as needed
+IMG_HEIGHT = 100  # Adjust as needed
+CHANNELS = 1  # For RGB images
+BATCH_SIZE = 32
+
+DATA_DIR = "../outputImages"
+newDataDir = "D:/blender_scripts/BlenderModels/git/blender-repo-base/blender-repo/outputImages"
+
+# %%
+
+def load_data(data_dir):
+    images = []
+    labels = []
+    for i, filename in enumerate(os.listdir(data_dir)):
+        if(i>10):
+            break
+        if filename.endswith(('.jpg', '.jpeg', '.png', '.gif')):  # Add other extensions if needed
+            try:
+                # img_path = os.path.join(data_dir, filename)
+                # img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)  # Use cv2.imread
+                # # print(sys.getsizeof(img))
+                # plt.imshow(img, cmap='gray')
+                # img = cv2.resize(img, (IMG_WIDTH, IMG_HEIGHT))  # Use cv2.resize
+                # # print(sys.getsizeof(img))
+                # img = img / 255.0
+                # img_array = np.array(img)
+                
+                img_path = os.path.join(data_dir, filename);
+                img, landmarks = estimPose_img(img_path)
+                print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>",filename)
+                plt.imshow(img, cmap='gray')
+                img = img / 255.0
+                print("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<")
+                plt.imshow(img, cmap='gray')
+                img_array = np.array(img)
+                
+
+                label = filename.split('_')[0]
+                # Extract label from filename
+                labels.append(label)
+                
+                images.append(img_array)
+            except Exception as e:
+                print(f"Error processing image {filename}: {e}")
+
+    return np.array(images), np.array(labels)
+
+# Load and preprocess data (same as before)
+images, labels = load_data(newDataDir)
+
+# print(labels)
+# %%
+
+
+
+from sklearn.preprocessing import LabelEncoder
+
+le = LabelEncoder()
+labels_encoded = le.fit_transform(labels)
+num_classes = len(le.classes_)
+labels_onehot = tf.keras.utils.to_categorical(labels_encoded, num_classes=num_classes)
+
+X_train, X_val, y_train, y_val = train_test_split(images, labels_onehot, test_size=0.2, random_state=42)
+
+
+# %%
+
+
+# Define the CNN model (same as before)
+model = tf.keras.models.Sequential([
+    tf.keras.layers.Conv2D(3, (5, 5), activation='relu', input_shape=(IMG_WIDTH, IMG_HEIGHT, CHANNELS)),
+    tf.keras.layers.MaxPooling2D((2, 2)),
+    # tf.keras.layers.Conv2D(64, (3, 3), activation='relu'),  # Another convolutional layer (64 filters)
+    # tf.keras.layers.MaxPooling2D((2, 2)),  # Another max pooling layer
+   
+    tf.keras.layers.Flatten(),
+    tf.keras.layers.Dense(512, activation='relu'),
+    tf.keras.layers.Dropout(0.5),
+
+   
+    # tf.keras.layers.Dense(256, activation='relu'),
+    # tf.keras.layers.Dropout(0.3),
+    # tf.keras.layers.Dense(128, activation='relu'),
+    # tf.keras.layers.Dropout(0.2),
+    tf.keras.layers.Dense(num_classes, activation='softmax')
+])
+
+# Compile, train, evaluate, and save the model (same as before)
+model.compile(optimizer='nadam',
+              loss='categorical_crossentropy',
+              metrics=['accuracy', 'Precision', 'Recall', 'AUC'])
+
+model.summary() 
+
+
+# %%
+
+EPOCHS = 50
+model.fit(X_train, y_train, epochs=EPOCHS, batch_size=BATCH_SIZE, validation_data=(X_val, y_val))
+
+loss, accuracy = model.evaluate(X_val, y_val)
+# %%
+
+# print(f"Validation Loss: {loss}")
+# print(f"Validation Accuracy: {accuracy}")
+
+
+
+# print("model input", model.input)
+
+
+# model.save("trained_cnn_model.h5")
+
+
+
+# Example of making predictions (same as before)
+# new_image = cv2.imread("path/to/new/image.jpg")  # Use cv2.imread
+# new_image = cv2.cvtColor(new_image, cv2.COLOR_BGR2RGB) # BGR to RGB conversion
+# new_image = cv2.resize(new_image, (IMG_WIDTH, IMG_HEIGHT))
+# new_image = np.array(new_image)
+# new_image = np.expand_dims(new_image, axis=0)  # Add batch dimension
+# predictions = model.predict(new_image)
+# predicted_class = np.argmax(predictions)
+# predicted_label = le.inverse_transform([predicted_class])[0]
+# print(f"Predicted Label: {predicted_label}")
